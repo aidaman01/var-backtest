@@ -29,6 +29,32 @@ def test_garch_mle_recovers_parameters():
         assert 3.5 < nu < 7.5, nu
 
 
+def test_garch_mle_reaches_optimum_on_real_windows():
+    # Windows where a+b sits near 0.999: the old penalty-wall fit stalled 3-6 log-lik units short.
+    # Known answer: a long Nelder-Mead search on the textbook likelihood can't beat garch_fit.
+    from scipy.optimize import minimize
+    from scipy.stats import t as student_t
+    r = load_csv(DATA).values
+
+    def nll(p, x):
+        mu, lw, a, b, nu = p
+        if a < 0 or b < 0 or a + b >= 0.999 or not 2.1 <= nu <= 50:
+            return 1e10
+        e = x - mu
+        s2 = garch_variance(e, np.exp(lw), a, b, x.var())[:-1]
+        k = np.sqrt(nu / (nu - 2))
+        return -np.sum(student_t.logpdf(e / np.sqrt(s2) * k, nu) + np.log(k) - 0.5 * np.log(s2))
+
+    for t0 in (1949, 1991, 2033):
+        x = r[t0 - 500:t0]
+        mu, omega, a, b, nu = garch_fit(x)
+        p = [mu, np.log(omega), a, b, nu]
+        best = min(minimize(nll, x0, args=(x,), method="Nelder-Mead",
+                            options={"maxiter": 20000, "xatol": 1e-9, "fatol": 1e-11}).fun
+                   for x0 in (p, [x.mean(), np.log(x.var() * 0.02), 0.15, 0.83, 5.0]))
+        assert nll(p, x) - best < 0.05, (t0, nll(p, x), best)
+
+
 def test_normal_var_es_match_basel_constants():
     # Basel's FRTB swap of 99% VaR for 97.5% ES: under normality 2.326 sigma vs 2.338 sigma.
     f = forecast(np.random.default_rng(0).standard_normal(600) * 0.01, model="ewma")

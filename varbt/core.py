@@ -28,22 +28,23 @@ def garch_variance(e, omega, a, b, v0):
 
 
 def garch_fit(r):
-    """MLE of r = mu + sigma z, z ~ unit-variance Student-t. Returns (mu, omega, a, b, nu)."""
-    v0 = r.var()
+    """MLE of r = mu + sigma z, z ~ unit-variance Student-t. Returns (mu, omega, a, b, nu).
+    Fitted on r / sd with a = pers * share, b = pers * (1 - share), so stationarity is a plain box
+    bound: a penalty wall at a + b = 0.999 used to stall L-BFGS-B up to 6 log-lik units short (measured)."""
+    sd = r.std()
+    y = r / sd
 
     def nll(p):
-        mu, lw, a, b, nu = p
-        if a + b >= 0.999:
-            return 1e10
-        e = r - mu
-        s2 = garch_variance(e, np.exp(lw), a, b, v0)[:-1]
+        mu, lw, pers, share, nu = p
+        e = y - mu
+        s2 = garch_variance(e, np.exp(lw), pers * share, pers * (1 - share), 1.0)[:-1]
         k = np.sqrt(nu / (nu - 2))
         return -np.sum(student_t.logpdf(e / np.sqrt(s2) * k, nu) + np.log(k) - 0.5 * np.log(s2))
 
-    x0 = [r.mean(), np.log(v0 * 0.05), 0.08, 0.88, 6.0]
-    bounds = [(-0.01, 0.01), (np.log(v0) - 12, np.log(v0)), (1e-4, 0.5), (0.0, 0.998), (2.1, 50)]
-    p = minimize(nll, x0, method="L-BFGS-B", bounds=bounds).x
-    return p[0], np.exp(p[1]), p[2], p[3], p[4]
+    x0 = [y.mean(), np.log(0.05), 0.96, 0.08, 6.0]
+    bounds = [(-0.01 / sd, 0.01 / sd), (-12, 0), (0.0, 0.998), (1e-4, 1.0), (2.1, 50)]
+    mu, lw, pers, share, nu = minimize(nll, x0, method="L-BFGS-B", bounds=bounds).x
+    return mu * sd, np.exp(lw) * sd ** 2, pers * share, pers * (1 - share), nu
 
 
 # ---------- rolling forecasts ----------

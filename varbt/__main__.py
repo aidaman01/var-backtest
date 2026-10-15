@@ -45,13 +45,15 @@ def plot(r, res, out):
     fb = res["fhs"][1]["hits"]
     a1.plot(t[fb], loss[fb], "o", ms=4, mfc="none", mec=COLOR["fhs"], label="loss beyond FHS VaR")
     top = loss.max() * 1.25
+    peak_right = False
     for m, (f, b) in res.items():  # label any VaR peak cut off by the axis
         i = int(np.argmax(f["var99"]))
         if f["var99"][i] * 100 > top:
             a1.annotate(f"{MODELS[m].split(' (')[0]} VaR peak {f['var99'][i] * 100:.0f}%", (t[i], top * 0.97),
                         xytext=(8, -4), textcoords="offset points", fontsize=8, color=COLOR[m], va="top")
+            peak_right |= i > len(t) / 2
     a1.set(ylabel="loss (%)", title="One-day 99% Value at Risk vs realised S&P 500 losses", ylim=(0, top))
-    a1.legend(frameon=False, fontsize=9, loc="upper right")
+    a1.legend(frameon=False, fontsize=9, loc="upper left" if peak_right else "upper right")
 
     g, y = traffic_light_limits()
     a2.axhspan(-0.5, g + 0.5, color="#e3f1e3", lw=0)
