@@ -24,9 +24,22 @@ def test_garch_filter_matches_recursion():
 def test_garch_mle_recovers_parameters():
     for seed in (3, 4):
         r, _ = simulate_garch_t(5000, a=0.10, b=0.88, nu=5.0, seed=seed)
-        mu, omega, a, b, nu = garch_fit(r)
+        mu, omega, a, b, nu, g = garch_fit(r)
+        assert g == 0.0
         assert abs(a - 0.10) < 0.03 and abs(b - 0.88) < 0.03 and abs(a + b - 0.98) < 0.015, (a, b)
         assert 3.5 < nu < 7.5, nu
+
+
+def test_gjr_mle_recovers_parameters():
+    # Known truth a 0.03, g 0.12, b 0.88 (persistence a + g/2 + b = 0.97), nu 5. Over 12 seeds the
+    # estimates had sd ~0.01 (a, g, b) and ~0.25 (nu): tolerances are ~3 sd.
+    for seed in (3, 4):
+        r, _ = simulate_garch_t(5000, a=0.03, g=0.12, b=0.88, nu=5.0, seed=seed)
+        mu, omega, a, b, nu, g = garch_fit(r, gjr=True)
+        assert abs(g - 0.12) < 0.04 and abs(a - 0.03) < 0.03 and abs(a + g / 2 + b - 0.97) < 0.03, (a, g, b)
+        assert 3.5 < nu < 7.5, nu
+    r, _ = simulate_garch_t(5000, a=0.10, b=0.88, nu=5.0, seed=3)  # symmetric truth: no leverage found
+    assert abs(garch_fit(r, gjr=True)[5]) < 0.04
 
 
 def test_garch_mle_reaches_optimum_on_real_windows():
@@ -47,7 +60,7 @@ def test_garch_mle_reaches_optimum_on_real_windows():
 
     for t0 in (1949, 1991, 2033):
         x = r[t0 - 500:t0]
-        mu, omega, a, b, nu = garch_fit(x)
+        mu, omega, a, b, nu, _ = garch_fit(x)
         p = [mu, np.log(omega), a, b, nu]
         best = min(minimize(nll, x0, args=(x,), method="Nelder-Mead",
                             options={"maxiter": 20000, "xatol": 1e-9, "fatol": 1e-11}).fun

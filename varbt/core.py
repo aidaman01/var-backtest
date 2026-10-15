@@ -4,6 +4,7 @@ Models (all use only data before the forecast day):
   hs    Historical simulation: the last `window` returns are the scenarios (Basel default).
   ewma  RiskMetrics: normal with EWMA volatility, lambda = 0.94.
   fhs   Filtered historical simulation: GARCH(1,1)-t volatility x empirical standardized residuals.
+  fhs_gjr  Same with GJR-GARCH(1,1)-t: extra weight g on negative shocks (leverage effect).
 
 Backtests:
   Kupiec POF (exception count), Christoffersen independence and conditional coverage,
@@ -20,31 +21,39 @@ VAR_LEVEL, ES_LEVEL = 0.99, 0.975
 
 # ---------- GARCH(1,1) with Student-t innovations ----------
 
-def garch_variance(e, omega, a, b, v0):
-    """sigma2[t] = omega + a e[t-1]^2 + b sigma2[t-1]; sigma2[0] = v0. Returns len(e)+1 values
-    (the last one is the forecast for the next day)."""
-    u = np.concatenate([[v0], omega + a * e ** 2])
+def garch_variance(e, omega, a, b, v0, g=0.0):
+    """sigma2[t] = omega + (a + g [e[t-1] < 0]) e[t-1]^2 + b sigma2[t-1]; sigma2[0] = v0. g = 0 is
+    GARCH, g > 0 GJR. Returns len(e)+1 values (the last one is the forecast for the next day)."""
+    u = np.concatenate([[v0], omega + (a + g * (e < 0)) * e ** 2])
     return lfilter([1.0], [1.0, -b], u)  # y[t] = u[t] + b y[t-1], y[0] = v0
 
 
-def garch_fit(r):
-    """MLE of r = mu + sigma z, z ~ unit-variance Student-t. Returns (mu, omega, a, b, nu).
+def garch_fit(r, gjr=False):
+    """MLE of r = mu + sigma z, z ~ unit-variance Student-t. Returns (mu, omega, a, b, nu, g).
     Fitted on r / sd with a = pers * share, b = pers * (1 - share), so stationarity is a plain box
-    bound: a penalty wall at a + b = 0.999 used to stall L-BFGS-B up to 6 log-lik units short (measured)."""
+    bound: a penalty wall at a + b = 0.999 used to stall L-BFGS-B up to 6 log-lik units short (measured).
+    gjr: a + g/2 = pers * share is split as a = (1 - lev) pers share, g = 2 lev pers share, lev in
+    [-1, 1], which keeps a >= 0, a + g >= 0 and a + g/2 + b < 1. Without gjr, g = 0."""
     sd = r.std()
     y = r / sd
 
     def nll(p):
-        mu, lw, pers, share, nu = p
+        mu, lw, pers, share, nu = p[:5]
+        lev = p[5] if gjr else 0.0
         e = y - mu
-        s2 = garch_variance(e, np.exp(lw), pers * share, pers * (1 - share), 1.0)[:-1]
+        s2 = garch_variance(e, np.exp(lw), pers * share * (1 - lev), pers * (1 - share), 1.0,
+                            2 * pers * share * lev)[:-1]
         k = np.sqrt(nu / (nu - 2))
         return -np.sum(student_t.logpdf(e / np.sqrt(s2) * k, nu) + np.log(k) - 0.5 * np.log(s2))
 
     x0 = [y.mean(), np.log(0.05), 0.96, 0.08, 6.0]
     bounds = [(-0.01 / sd, 0.01 / sd), (-12, 0), (0.0, 0.998), (1e-4, 1.0), (2.1, 50)]
-    mu, lw, pers, share, nu = minimize(nll, x0, method="L-BFGS-B", bounds=bounds).x
-    return mu * sd, np.exp(lw) * sd ** 2, pers * share, pers * (1 - share), nu
+    if gjr:
+        x0, bounds = x0 + [0.0], bounds + [(-1.0, 1.0)]
+    p = minimize(nll, x0, method="L-BFGS-B", bounds=bounds).x
+    mu, lw, pers, share, nu = p[:5]
+    lev = p[5] if gjr else 0.0
+    return mu * sd, np.exp(lw) * sd ** 2, pers * share * (1 - lev), pers * (1 - share), nu, 2 * pers * share * lev
 
 
 # ---------- rolling forecasts ----------
@@ -78,12 +87,12 @@ def forecast(r, window=500, model="fhs", refit=21, lam=0.94):
     idx = days[:, None] + np.arange(-window, 0)  # past `window` days for each forecast day
     if model == "hs":
         S = r[idx]
-    elif model == "fhs":
+    elif model in ("fhs", "fhs_gjr"):
         S = np.empty(idx.shape)
         for i0 in range(0, len(days), refit):
             t0 = days[i0]
-            mu, omega, a, b, nu = garch_fit(r[t0 - window:t0])
-            s = np.sqrt(garch_variance(r - mu, omega, a, b, r[:window].var()))  # s[t]: info to t-1
+            mu, omega, a, b, nu, g = garch_fit(r[t0 - window:t0], gjr=model == "fhs_gjr")
+            s = np.sqrt(garch_variance(r - mu, omega, a, b, r[:window].var(), g))  # s[t]: info to t-1
             blk = slice(i0, min(i0 + refit, len(days)))
             z = (r[idx[blk]] - mu) / s[idx[blk]]
             S[blk] = mu + s[days[blk], None] * z

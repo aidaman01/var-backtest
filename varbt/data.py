@@ -19,14 +19,15 @@ def load_yahoo(ticker="^GSPC", start="1990-01-01"):
     return np.log(px).diff().dropna()
 
 
-def simulate_garch_t(n, mu=0.0003, omega=2e-6, a=0.10, b=0.88, nu=5.0, seed=0):
-    """r = mu + sigma z, sigma2 GARCH(1,1), z unit-variance Student-t. Returns (r, sigma)."""
+def simulate_garch_t(n, mu=0.0003, omega=2e-6, a=0.10, b=0.88, nu=5.0, seed=0, g=0.0):
+    """r = mu + sigma z, sigma2 GARCH(1,1) (GJR if g > 0), z unit-variance Student-t. Returns (r, sigma)."""
     rng = np.random.default_rng(seed)
     z = rng.standard_t(nu, n) * np.sqrt((nu - 2) / nu)
     s2, r = np.empty(n), np.empty(n)
-    s2[0] = omega / (1 - a - b)
+    s2[0] = omega / (1 - a - g / 2 - b)
     for t in range(n):
         if t:
-            s2[t] = omega + a * (r[t - 1] - mu) ** 2 + b * s2[t - 1]
+            e = r[t - 1] - mu
+            s2[t] = omega + (a + g * (e < 0)) * e ** 2 + b * s2[t - 1]
         r[t] = mu + np.sqrt(s2[t]) * z[t]
     return r, np.sqrt(s2)
