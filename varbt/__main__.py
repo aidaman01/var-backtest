@@ -43,8 +43,8 @@ def plot(r, res, out):
     a1.vlines(t, 0, np.clip(loss, 0, None), color="#8a8984", lw=0.7, label="daily loss")
     for m, (f, b) in res.items():
         a1.plot(t, f["var99"] * 100, color=COLOR[m], lw=1.1, label=f"99% VaR, {MODELS[m]}")
-    fb = res["fhs"][1]["hits"]
-    a1.plot(t[fb], loss[fb], "o", ms=4, mfc="none", mec=COLOR["fhs"], label="loss beyond FHS VaR")
+    fb = res["fhs_gjr"][1]["hits"]
+    a1.plot(t[fb], loss[fb], "o", ms=4, mfc="none", mec=COLOR["fhs_gjr"], label="loss beyond FHS-GJR VaR")
     top = loss.max() * 1.25
     peak_right, n_peaks = False, 0
     for m, (f, b) in res.items():  # label any VaR peak cut off by the axis, stacked
@@ -54,7 +54,8 @@ def plot(r, res, out):
                         xytext=(8, -4 - 12 * n_peaks), textcoords="offset points", fontsize=8, color=COLOR[m], va="top")
             peak_right |= i > len(t) / 2
             n_peaks += 1
-    a1.set(ylabel="loss (%)", title="One-day 99% Value at Risk vs realised S&P 500 losses", ylim=(0, top))
+    a1.set(ylabel="loss (%)", title="One-day 99% Value at Risk vs realised S&P 500 losses", ylim=(0, top),
+           xlim=(t[0], t[-1]))
     a1.legend(frameon=False, fontsize=9, loc="upper left" if peak_right else "upper right")
 
     g, y = traffic_light_limits()
