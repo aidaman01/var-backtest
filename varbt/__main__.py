@@ -1,4 +1,4 @@
-"""python -m varbt [--csv FILE | --ticker ^GSPC] [--out var.png]"""
+"""python -m varbt [--ticker ^GSPC --start 2016-02-12 --end 2026-02-12 | --csv FILE] [--out var.png]"""
 import argparse
 
 import matplotlib
@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from .core import backtest, forecast, traffic_light_limits
-from .data import load_csv, load_yahoo
+from .data import MAIN, load_csv, load_yahoo
 
 MODELS = {"hs": "Historical simulation", "ewma": "EWMA normal (RiskMetrics)", "fhs": "Filtered HS (GARCH-t)",
           "fhs_gjr": "Filtered HS (GJR-GARCH-t)"}
@@ -75,15 +75,13 @@ def plot(r, res, out):
 
 def main():
     ap = argparse.ArgumentParser(description="Backtest 1-day VaR and ES models on an equity index.")
-    ap.add_argument("--csv", default=None, help="FRED-style CSV (observation_date, SP500)")
-    ap.add_argument("--ticker", default=None, help="live via yfinance, e.g. ^GSPC")
-    ap.add_argument("--start", default="1990-01-01")
+    ap.add_argument("--csv", default=None, help="your own CSV: date, price (instead of Yahoo)")
+    ap.add_argument("--ticker", default=MAIN[0], help="Yahoo Finance ticker, via yfinance")
+    ap.add_argument("--start", default=MAIN[1])
+    ap.add_argument("--end", default=MAIN[2], help="exclusive")
     ap.add_argument("--out", default="var.png")
     a = ap.parse_args()
-    if a.ticker:
-        r = load_yahoo(a.ticker, a.start)
-    else:
-        r = load_csv(a.csv or "tests/data/sp500_fred.csv")
+    r = load_csv(a.csv) if a.csv else load_yahoo(a.ticker, a.start, a.end)
     res = {}
     for m in MODELS:
         f = forecast(r.values, model=m)

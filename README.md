@@ -8,8 +8,8 @@
 |---|---|---|---|---|---|---|
 | Historical simulation | 27 | 0.144 | **0.004** | **10, red** (to 2020-06) | **0.000** | 3.59% |
 | EWMA normal (RiskMetrics) | **50** | **0.000** | 0.504 | **13, red** (to 2020-03) | **0.000** | 2.47% |
-| Filtered HS (GARCH-t) | 21 | 0.847 | 0.216 | 7, yellow (to 2025-04) | 0.122 | 3.15% |
-| Filtered HS (GJR-GARCH-t) | 24 | 0.400 | 0.447 | 6, yellow (to 2024-10) | 0.168 | 3.12% |
+| Filtered HS (GARCH-t) | 21 | 0.847 | 0.216 | 7, yellow (to 2025-04) | 0.101 | 3.15% |
+| Filtered HS (GJR-GARCH-t) | 24 | 0.400 | 0.447 | 6, yellow (to 2024-10) | 0.158 | 3.12% |
 
 *p < 0.05 rejects the model. 2,013 trading days, 2018-02-08 to 2026-02-11.*
 
@@ -20,7 +20,7 @@
 
 ## Long history (1990–today)
 
-`python -m varbt --ticker ^GSPC` (Yahoo Finance, run 2026-10-15): 8,763 backtest days, 1991-12-24 to 2026-10-14, covering 1997–98, 2000–02, **2008**, 2011, 2020 and 2025.
+`python -m varbt --start 1990-01-01 --end 2026-10-15 --out var_1990.png`: 8,763 backtest days, 1991-12-24 to 2026-10-14, covering 1997–98, 2000–02, **2008**, 2011, 2020 and 2025.
 
 ![VaR backtest on the S&P 500, 1991-2026](var_1990.png)
 
@@ -29,7 +29,7 @@
 | Historical simulation | 114 | **0.007** | **0.000** | **18, red** (to 2008-12) | **0.000** | 3.05% |
 | EWMA normal (RiskMetrics) | **189** | **0.000** | **0.004** | **13, red** (to 2007-11) | **0.000** | 2.30% |
 | Filtered HS (GARCH-t) | 100 | 0.194 | **0.007** | 8, yellow (to 2007-11) | 0.077 | 2.74% |
-| Filtered HS (GJR-GARCH-t) | 97 | 0.323 | 0.141 | 7, yellow (to 1996-07) | 0.108 | 2.69% |
+| Filtered HS (GJR-GARCH-t) | 97 | 0.323 | 0.141 | 7, yellow (to 1996-07) | 0.124 | 2.69% |
 
 - **HS and EWMA still fail.** HS now fails the exception count too, and 2008 puts it at 18 exceptions in 250 days, deep in the red zone. EWMA has 2.2× the expected exceptions and now also fails Christoffersen.
 - **FHS fails Christoffersen.** It gets the count right, never reaches red, and its ES passes, but it has 5 back-to-back exceptions where about 1 is expected: 1993-11-03/04, 1994-03-29/30, 2015-08-20/21, 2018-02-02/05 and 2025-04-03/04 (the second 1993 loss beat VaR by under 0.01 points). Shuffling the 100 exception days 10,000 times gives 5 or more pairs in 0.72% of cases, matching the test's asymptotic p = 0.0067. The original optimizer (see Validation) fails it too (p = 0.039).
@@ -59,7 +59,7 @@
 
 ## Validation
 
-`python tests/test_varbt.py` (or `python -m pytest`), 12 tests, about 25 seconds (longer on the first, cold run). Every test checks against a known answer.
+`python tests/test_varbt.py` 12 tests, about 25 seconds (longer on the first, cold run). Every test checks against a known answer.
 
 | Check | Result |
 |---|---|
@@ -78,24 +78,24 @@
 
 Three findings from building it:
 - **Quantile rule matters.** NumPy's default quantile puts the 1% point of 500 scenarios about 20% too far into the body: on simulated data with a known answer, historical models broke VaR 36 times instead of ~25. The engine uses the k/(n+1) plotting position (`method="weibull"`), which fixed most of the gap.
-- **The GARCH fit must reach the optimum.** The first version enforced α+β < 0.999 with a penalty wall. L-BFGS-B stalled against it: on the FRED data 65 of 96 refits ended more than 0.1 log-likelihood units short of the optimum (worst 6.2), and the same code gave different FHS results on two machines (ES Z2 p 0.174 vs 0.122). Fitting persistence α+β and α's share of it as box-bounded parameters on standardized returns brings every refit within 0.03 units.
+- **The GARCH fit must reach the optimum.** The first version enforced α+β < 0.999 with a penalty wall. L-BFGS-B stalled against it: on the 2016–2026 data (FRED copy) 65 of 96 refits ended more than 0.1 log-likelihood units short of the optimum (worst 6.2), and the same code gave different FHS results on two machines (ES Z2 p 0.174 vs 0.122). Fitting persistence α+β and α's share of it as box-bounded parameters on standardized returns brings every refit within 0.03 units.
 - **Christoffersen's test is oversized in short samples:** 8% rejections instead of 5% at 1,000 days with 5% hits, converging to 5% by 5,000 days (measured). Treat borderline p-values with care.
 
 ## Run
 
 ```
 pip install -r requirements.txt
-python -m varbt                       # bundled S&P 500 data (FRED, 2016-2026)
-python -m varbt --ticker ^GSPC        # live from Yahoo Finance, from 1990
+python -m varbt                                                    # main table, 2016-02-12 to 2026-02-11
+python -m varbt --start 1990-01-01 --end 2026-10-15 --out var_1990.png   # long history
 ```
 
-Prints the table above and saves `var.png`.
+Prints the table and saves the chart (`var.png` by default). The first run downloads S&P 500 closes from Yahoo Finance into `data/` (not committed); later runs reuse that copy.
 
 ## Limits
 
 - **One asset, long only.** A portfolio needs a joint model (e.g. filtered HS on several assets with a correlation model).
 - **FHS overreacts after shocks.** Its 99% VaR peaked at 28% in March 2020 (GJR: 30%), when the worst daily loss was 12.8%. That conservatism is part of why it passes; a desk would also judge it on how much capital it ties up during a crisis.
-- **The bundled data has no 2008.** FRED publishes 10 years of the S&P 500 index for free. `--ticker ^GSPC` adds 1990 onward, including 2008 ([Long history](#long-history-1990today)); Yahoo data isn't bundled, so that table can drift slightly as Yahoo revises or extends its series.
+- **Data is downloaded, not bundled.** If Yahoo revises its history, results can drift slightly. The ES Z2 p-values are the least stable number: rounding the input at the 1e-16 level moved them by up to 0.02 (optimizer tolerance plus Monte Carlo); no pass/fail verdict changed.
 - **Price index, not total return.** Dividends are ignored: under 0.01% a day, small next to 1-day risk. Returns and losses are daily log returns.
 
-Data: S&P 500 daily close from FRED via the open [datasets/s-and-p-500](https://github.com/datasets/s-and-p-500) project (ODC-PDDL); see [`tests/data`](tests/data).
+Data: S&P 500 index (^GSPC) daily close from Yahoo Finance, downloaded with [yfinance](https://github.com/ranaroussi/yfinance). The index is the property of S&P Dow Jones Indices and Yahoo's terms allow personal use only, so no price data is stored in this repository; the code downloads it on your machine.

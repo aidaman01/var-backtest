@@ -8,9 +8,16 @@ from scipy.stats import binom, norm
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from varbt.core import (_tail, backtest, christoffersen, forecast, garch_fit, garch_variance, kupiec,
                         traffic_light_limits, z2_test)
-from varbt.data import load_csv, simulate_garch_t
+from varbt.data import MAIN, load_yahoo, simulate_garch_t
 
-DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "sp500_fred.csv")
+
+def sp500():
+    """S&P 500 returns for the main run (Yahoo, downloaded once into data/); None if offline."""
+    try:
+        return load_yahoo(*MAIN)
+    except Exception as e:
+        print(f"     no S&P 500 data ({type(e).__name__}): skipping real-data test")
+        return None
 
 
 def test_garch_filter_matches_recursion():
@@ -47,7 +54,10 @@ def test_garch_mle_reaches_optimum_on_real_windows():
     # Known answer: a long Nelder-Mead search on the textbook likelihood can't beat garch_fit.
     from scipy.optimize import minimize
     from scipy.stats import t as student_t
-    r = load_csv(DATA).values
+    r = sp500()
+    if r is None:
+        return "skip"
+    r = r.values
 
     def nll(p, x):
         mu, lw, a, b, nu = p
@@ -130,8 +140,10 @@ def test_models_on_simulated_garch_t():
 
 
 def test_real_sp500():
-    """FRED S&P 500, 2016-02 to 2026-02 (tests/data). Backtest 2018-02 to 2026-02, 2013 days."""
-    r = load_csv(DATA)
+    """S&P 500 (Yahoo ^GSPC), 2016-02-12 to 2026-02-11. Backtest 2018-02 to 2026-02, 2013 days."""
+    r = sp500()
+    if r is None:
+        return "skip"
     out = {m: backtest(r.values, forecast(r.values, model=m)) for m in ("hs", "ewma", "fhs")}
     hs, ewma, fhs = out["hs"], out["ewma"], out["fhs"]
     assert fhs["kupiec_p"] > 0.05 and fhs["christoffersen_p"] > 0.05 and fhs["z2_p"] > 0.05
@@ -144,5 +156,4 @@ def test_real_sp500():
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
-            fn()
-            print("ok  ", name)
+            print("skip" if fn() == "skip" else "ok  ", name)

@@ -1,22 +1,36 @@
-"""Daily index returns: open CSV (FRED S&P 500), live via yfinance, or simulated GARCH-t (known truth)."""
+"""Daily index returns: Yahoo Finance via yfinance (downloaded once, cached in data/, never committed),
+any date,price CSV, or simulated GARCH-t (known truth)."""
+import os
+
 import numpy as np
 import pandas as pd
 
+# The two published runs: (ticker, start, end); yfinance's end date is exclusive.
+MAIN = ("^GSPC", "2016-02-12", "2026-02-12")   # last day 2026-02-11
+LONG = ("^GSPC", "1990-01-01", "2026-10-15")   # last day 2026-10-14
+
 
 def load_csv(path):
-    """FRED-style CSV (observation_date, SP500). Returns daily log returns indexed by date."""
-    d = pd.read_csv(path, parse_dates=["observation_date"]).dropna()
-    px = d.set_index("observation_date")["SP500"].astype(float)
+    """CSV with dates in the first column and prices in the second (blank prices skipped).
+    Returns daily log returns indexed by date."""
+    px = pd.read_csv(path, index_col=0, parse_dates=True).iloc[:, 0]
+    px = pd.to_numeric(px, errors="coerce").dropna()
     return np.log(px).diff().dropna()
 
 
-def load_yahoo(ticker="^GSPC", start="1990-01-01"):
-    import yfinance as yf
+def load_yahoo(ticker="^GSPC", start=MAIN[1], end=MAIN[2], cache="data"):
+    """Daily closes from Yahoo Finance, cached as data/<ticker>_<start>_<end>.csv. Yahoo's terms allow
+    personal use only, so the data is downloaded on each machine instead of shipped with the code."""
+    path = os.path.join(cache, f"{ticker.lstrip('^')}_{start}_{end}.csv")
+    if not os.path.exists(path):
+        import yfinance as yf
 
-    px = yf.download(ticker, start=start, auto_adjust=True, progress=False)["Close"].squeeze().dropna()
-    if len(px) < 1000:
-        raise RuntimeError(f"only {len(px)} prices for {ticker}; check the ticker or connection")
-    return np.log(px).diff().dropna()
+        px = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)["Close"].squeeze().dropna()
+        if len(px) < 1000:
+            raise RuntimeError(f"only {len(px)} prices for {ticker}; check the ticker or connection")
+        os.makedirs(cache, exist_ok=True)
+        px.rename("close").to_csv(path, index_label="date")
+    return load_csv(path)
 
 
 def simulate_garch_t(n, mu=0.0003, omega=2e-6, a=0.10, b=0.88, nu=5.0, seed=0, g=0.0):
