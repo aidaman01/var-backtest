@@ -32,7 +32,7 @@
 | Filtered HS (GJR-GARCH-t) | 97 | 0.323 | 0.141 | 7, yellow (to 1996-07) | 0.124 | 2.69% |
 
 - **HS and EWMA still fail.** HS now fails the exception count too, and 2008 puts it at 18 exceptions in 250 days, deep in the red zone. EWMA has 2.2× the expected exceptions and now also fails Christoffersen.
-- **FHS fails Christoffersen.** It gets the count right, never reaches red, and its ES passes, but it has 5 back-to-back exceptions where about 1 is expected: 1993-11-03/04, 1994-03-29/30, 2015-08-20/21, 2018-02-02/05 and 2025-04-03/04 (the second 1993 loss beat VaR by under 0.01 points). Shuffling the 100 exception days 10,000 times gives 5 or more pairs in 0.72% of cases, matching the test's asymptotic p = 0.0067. The original optimizer (see Validation) fails it too (p = 0.039).
+- **FHS fails Christoffersen.** It gets the count right, never reaches red, and its ES passes, but it has 5 back-to-back exceptions where about 1 is expected: 1993-11-03/04, 1994-03-29/30, 2015-08-20/21, 2018-02-02/05 and 2025-04-03/04 (the second 1993 loss beat VaR by under 0.01 points). Shuffling the 100 exception days 10,000 times gives 5 or more pairs in 0.72% of cases, matching the test's asymptotic p = 0.0067. The original optimizer (see Validation) fails it too (p = 0.037).
 - In 2018–2026 FHS had only 1 back-to-back exception. Eight years is too short to see the clustering that 35 years shows.
 - **Hypothesis, fixed before running: the clustering comes from the leverage effect.** GJR-GARCH-t adds a weight g on yesterday's squared return when it was negative. Run once: it passes every test, with **0** back-to-back exceptions in 97. Its Christoffersen p of 0.141 comes from having fewer pairs than expected (the test is two-sided); the same shuffle gives 0.431. In 99% of its 418 refits g > 0, and the median fit puts all of the shock response on falls (median α 0.000, g 0.182).
 - **What it means:** the symmetric GARCH filter under-reacts to falls, and letting falls raise volatility more removes the clustering at a similar exception count (97 vs 100) and slightly lower average VaR (2.69% vs 2.74%), which supports the leverage hypothesis on one index and one run but does not prove it.
@@ -63,23 +63,23 @@
 
 | Check | Result |
 |---|---|
-| GARCH variance filter vs plain recursion | equal to 1e-18 |
+| GARCH variance filter vs plain recursion | equal within 1e-18 |
 | GARCH-t MLE on simulated data (true α 0.10, β 0.88, ν 5) | recovers α+β within 0.015, ν within 3.5–7.5 |
 | GJR-GARCH-t MLE on simulated data (true α 0.03, g 0.12, β 0.88, ν 5) | α, g within 0.03–0.04, α+g/2+β within 0.03, ν 3.5–7.5; on symmetric data \|g\| < 0.04 |
 | GARCH-t MLE on real windows with α+β near 1 | within 0.05 log-lik of a long Nelder-Mead search |
 | Normal 97.5% ES vs 99% VaR | 2.338σ vs 2.326σ, the Basel FRTB equivalence |
 | Kupiec statistic vs binomial likelihood ratio | exact |
-| Test size under a correct model | Kupiec ≈ 5.7%, Christoffersen ≈ 5%, Z2 ≈ 5.7% (target 5%) |
-| Test power | clustered exceptions caught > 90%; ES too small by 30% vol caught > 85% |
+| Test size under a correct model (target 5%) | Kupiec 5.7% (1,000 days), Christoffersen 5.9% (5,000 days), Z2 6.0% (250 days) |
+| Test power | clustered exceptions caught 99.5% of the time; volatility 30% too low caught by Z2 97% |
 | Basel zones from the binomial | green ≤ 4, red ≥ 10, matching the 1996 Basel table |
-| **Known truth:** data simulated from GARCH-t, 6 seeds | FHS passes all tests on all 6; EWMA fails Kupiec on ≥ 4; HS fails Christoffersen on ≥ 3 |
+| **Known truth:** data simulated from GARCH-t, 6 seeds | FHS passes all tests on 6 of 6; EWMA fails Kupiec on 5 of 6; HS fails Christoffersen on 4 of 6 |
 | **Real data:** S&P 500 2018–2026 | results in the table above |
 | **Real data:** S&P 500 1991–2026 (Yahoo) | [Long history](#long-history-1990today) |
 
 Three findings from building it:
-- **Quantile rule matters.** NumPy's default quantile puts the 1% point of 500 scenarios about 20% too far into the body: on simulated data with a known answer, historical models broke VaR 36 times instead of ~25. The engine uses the k/(n+1) plotting position (`method="weibull"`), which fixed most of the gap.
+- **Quantile rule matters.** With NumPy's default quantile, historical simulation on simulated GARCH-t data broke its 99% VaR 36.0 times per 2,500 days on average (6 seeds) instead of 25. The k/(n+1) plotting position (`method="weibull"`) brings it to 30.7, about half the gap; the rest is historical simulation's own lag in volatile data.
 - **The GARCH fit must reach the optimum.** The first version enforced α+β < 0.999 with a penalty wall. L-BFGS-B stalled against it: on the 2016–2026 data (FRED copy) 65 of 96 refits ended more than 0.1 log-likelihood units short of the optimum (worst 6.2), and the same code gave different FHS results on two machines (ES Z2 p 0.174 vs 0.122). Fitting persistence α+β and α's share of it as box-bounded parameters on standardized returns brings every refit within 0.03 units.
-- **Christoffersen's test is oversized in short samples:** 8% rejections instead of 5% at 1,000 days with 5% hits, converging to 5% by 5,000 days (measured). Treat borderline p-values with care.
+- **Christoffersen's test is oversized in short samples:** with 5% hits it rejects 8.4% of the time at 1,000 days and 5.1% at 5,000 days (4,000 simulations each). Treat borderline p-values with care.
 
 ## Run
 
