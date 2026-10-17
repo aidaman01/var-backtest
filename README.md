@@ -1,8 +1,18 @@
 # VaR Backtest
 
-**Which risk model would have survived 2020?** Three standard ways (plus one variant) to compute the one-day Value at Risk and Expected Shortfall of an S&P 500 position, run day by day over 2018–2026 using only data available at the time, then judged by the same backtests regulators use.
+[![tests](https://github.com/aidaman01/var-backtest/actions/workflows/tests.yml/badge.svg)](https://github.com/aidaman01/var-backtest/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](requirements.txt)
 
-![VaR backtest on the S&P 500](var_sp500.png)
+**Which risk model would have survived 2008 and 2020?** One-day 99% Value at Risk and 97.5% Expected Shortfall for the S&P 500 from four models, forecast day by day using only data available at the time, then judged by the backtests regulators use.
+
+- **Answer:** filtered historical simulation with a GJR-GARCH-t filter is the only model that passes every test, both over 2018–2026 (2,013 days) and over 1991–2026 (8,763 days).
+- Historical simulation and EWMA fail in both periods. Plain GARCH-t filtered HS passes 2018–2026, but over 1991–2026 its exceptions cluster (Christoffersen p = 0.007, confirmed by a 10,000-shuffle permutation test, p = 0.0072).
+- **Caveat:** one index, and the GJR fix was a single pre-stated hypothesis run once. The ES test's p-values move by up to 0.02 under tiny input changes.
+
+![One-day 99% VaR vs realised S&P 500 losses, 2018-2026, and Basel traffic light](var_sp500.png)
+
+## Results, 2018–2026
 
 | Model | 99% VaR exceptions (expected 20.1) | Kupiec p | Christoffersen p | Worst 250 days (Basel) | ES Z2 p | Average VaR |
 |---|---|---|---|---|---|---|
@@ -13,12 +23,14 @@
 
 *p < 0.05 rejects the model. 2,013 trading days, 2018-02-08 to 2026-02-11.*
 
+*p < 0.05 rejects the model (bold). 2,013 trading days, 2018-02-08 to 2026-02-11.*
+
 - **Historical simulation** gets the overall count right, which is why banks like it, but its exceptions arrive in clusters (Christoffersen rejects). It reacted to COVID only after the losses had happened and reached the Basel **red zone**.
 - **EWMA normal** reacts fast, so its exceptions don't cluster, but normal tails are far too thin: **2.5×** the expected exceptions.
-- **Filtered historical simulation** passes every test here. It also holds **less** risk on average than historical simulation (3.15% vs 3.59%): it raises VaR when volatility rises and lowers it in calm markets, instead of carrying a 2-year-old crash for 2 years. Over 1991–2026 it fails the clustering test ([below](#long-history-1990today)).
+- **Filtered historical simulation** passes every test here. It also holds **less** risk on average than historical simulation (3.15% vs 3.59%): it raises VaR when volatility rises and lowers it in calm markets, instead of carrying a 2-year-old crash for 2 years. Over 1991–2026 it fails the clustering test ([below](#long-history-19912026)).
 - **Filtered HS with GJR-GARCH-t** (volatility reacts more to falls than to rises) also passes every test, here and over 1991–2026.
 
-## Long history (1990–today)
+## Long history, 1991–2026
 
 `python -m varbt --start 1990-01-01 --end 2026-10-15 --out var_1990.png`: 8,763 backtest days, 1991-12-24 to 2026-10-14, covering 1997–98, 2000–02, **2008**, 2011, 2020 and 2025.
 
@@ -57,9 +69,24 @@
 | Basel traffic light | Exceptions in 250 days: green ≤ 4, yellow 5–9, red ≥ 10 (binomial 95% / 99.99%) |
 | Acerbi-Szekely Z2 | Is the 97.5% Expected Shortfall (the FRTB measure) big enough? p-value by simulating under each model's own forecast distribution |
 
+## Run
+
+Python 3.13 (tested in CI) or 3.15 (tested locally).
+
+```bash
+git clone https://github.com/aidaman01/var-backtest.git && cd var-backtest
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python tests/test_varbt.py                                                  # 12 tests, about 25 s
+python -m varbt --out var_sp500.png                                         # 2018-2026 table and chart
+python -m varbt --start 1990-01-01 --end 2026-10-15 --out var_1990.png      # 1991-2026
+```
+
+The first run downloads S&P 500 closes from Yahoo Finance into `data/` (git-ignored); later runs reuse that copy. Without a connection, the two real-data tests print `skip`.
+
 ## Validation
 
-`python tests/test_varbt.py` 12 tests, about 25 seconds (longer on the first, cold run). Every test checks against a known answer.
+`python tests/test_varbt.py` runs 12 tests. Every test checks against a known answer.
 
 | Check | Result |
 |---|---|
@@ -74,22 +101,12 @@
 | Basel zones from the binomial | green ≤ 4, red ≥ 10, matching the 1996 Basel table |
 | **Known truth:** data simulated from GARCH-t, 6 seeds | FHS passes all tests on 6 of 6; EWMA fails Kupiec on 5 of 6; HS fails Christoffersen on 4 of 6 |
 | **Real data:** S&P 500 2018–2026 | results in the table above |
-| **Real data:** S&P 500 1991–2026 (Yahoo) | [Long history](#long-history-1990today) |
+| **Real data:** S&P 500 1991–2026 (Yahoo) | [Long history](#long-history-19912026) |
 
 Three findings from building it:
 - **Quantile rule matters.** With NumPy's default quantile, historical simulation on simulated GARCH-t data broke its 99% VaR 36.0 times per 2,500 days on average (6 seeds) instead of 25. The k/(n+1) plotting position (`method="weibull"`) brings it to 30.7, about half the gap; the rest is historical simulation's own lag in volatile data.
 - **The GARCH fit must reach the optimum.** The first version enforced α+β < 0.999 with a penalty wall. L-BFGS-B stalled against it: on the 2016–2026 data (FRED copy) 65 of 96 refits ended more than 0.1 log-likelihood units short of the optimum (worst 6.2), and the same code gave different FHS results on two machines (ES Z2 p 0.174 vs 0.122). Fitting persistence α+β and α's share of it as box-bounded parameters on standardized returns brings every refit within 0.03 units.
 - **Christoffersen's test is oversized in short samples:** with 5% hits it rejects 8.4% of the time at 1,000 days and 5.1% at 5,000 days (4,000 simulations each). Treat borderline p-values with care.
-
-## Run
-
-```
-pip install -r requirements.txt
-python -m varbt                                                    # main table, 2016-02-12 to 2026-02-11
-python -m varbt --start 1990-01-01 --end 2026-10-15 --out var_1990.png   # long history
-```
-
-Prints the table and saves the chart (`var.png` by default). The first run downloads S&P 500 closes from Yahoo Finance into `data/` (not committed); later runs reuse that copy.
 
 ## Limits
 
@@ -98,4 +115,21 @@ Prints the table and saves the chart (`var.png` by default). The first run downl
 - **Data is downloaded, not bundled.** If Yahoo revises its history, results can drift slightly. The ES Z2 p-values are the least stable number: rounding the input at the 1e-16 level moved them by up to 0.02 (optimizer tolerance plus Monte Carlo); no pass/fail verdict changed.
 - **Price index, not total return.** Dividends are ignored: under 0.01% a day, small next to 1-day risk. Returns and losses are daily log returns.
 
-Data: S&P 500 index (^GSPC) daily close from Yahoo Finance, downloaded with [yfinance](https://github.com/ranaroussi/yfinance). The index is the property of S&P Dow Jones Indices and Yahoo's terms allow personal use only, so no price data is stored in this repository; the code downloads it on your machine.
+## Data
+
+S&P 500 index (`^GSPC`) daily closes from Yahoo Finance, downloaded with [yfinance](https://github.com/ranaroussi/yfinance). The index is the property of S&P Dow Jones Indices LLC, and Yahoo's terms allow personal, non-commercial use only, so no price data is stored in this repository: the code downloads it on your machine.
+
+## License
+
+Code: [MIT](LICENSE). The data is not covered by this licence (see above).
+
+## References
+
+- Acerbi, C., Szekely, B. (2014). Backtesting expected shortfall. *Risk*, December.
+- Barone-Adesi, G., Giannopoulos, K., Vosper, L. (1999). VaR without correlations for portfolios of derivative securities. *Journal of Futures Markets* 19(5), 583–602.
+- Basel Committee on Banking Supervision (1996). Supervisory framework for the use of "backtesting" in conjunction with the internal models approach to market risk capital requirements.
+- Bollerslev, T. (1987). A conditionally heteroskedastic time series model for speculative prices and rates of return. *Review of Economics and Statistics* 69(3), 542–547.
+- Christoffersen, P. (1998). Evaluating interval forecasts. *International Economic Review* 39(4), 841–862.
+- Glosten, L., Jagannathan, R., Runkle, D. (1993). On the relation between the expected value and the volatility of the nominal excess return on stocks. *Journal of Finance* 48(5), 1779–1801.
+- J.P. Morgan/Reuters (1996). *RiskMetrics Technical Document*, 4th edition.
+- Kupiec, P. (1995). Techniques for verifying the accuracy of risk measurement models. *Journal of Derivatives* 3(2), 73–84.
