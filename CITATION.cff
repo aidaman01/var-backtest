@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite it as below."
+title: "VaR Backtest: 1-day VaR and Expected Shortfall models on the S&P 500"
+authors:
+  - family-names: Bliyev
+    given-names: Aidan
+type: software
+license: MIT
+repository-code: "https://github.com/aidaman01/var-backtest"
+date-released: 2026-10-17
+keywords:
+  - value-at-risk
+  - expected-shortfall
+  - backtesting
+  - garch
